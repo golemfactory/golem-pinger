@@ -10,27 +10,19 @@ from golem.network.transport import message
 message.init_messages()
 
 name = 'node-'+str(time.time())+'.'+str(random.randint(0, 2147483647))
-prv_addr = '10.30.8.12'
-prv_port = 40103
-p2p_prv_port = 40102
-pub_addr = '194.181.80.91'
 proto_id = 14
-data_dir = "/home/dybi/var/bootstrap_stress/"
 cli_ver = '0.8.1'
 
-dir = data_dir + name +'/keys'
-keys_auth = EllipticalKeysAuth(data_dir + name)
-EllipticalKeysAuth._keys_dir = dir
 
-def prepare_hello(keys_auth, rand_val):
-    node = Node(name, keys_auth.get_key_id(), prv_addr, prv_port, pub_addr,
-                None,
-                'Symmetric NAT', pub_addr, p2p_prv_port)
+def prepare_hello(keys_auth, rand_val, config):
+    node = Node(name, keys_auth.get_key_id(), config.prvaddr, config.prvport,
+        config.pubaddr, None, 'Symmetric NAT', config.pubaddr,
+        config.p2pprvport)
 
     challenge_kwargs = {}
     msg = message.MessageHello(
         proto_id=proto_id,
-        port=p2p_prv_port,
+        port=config.p2pprvport,
         node_name=name,
         client_key_id=keys_auth.get_key_id(),
         node_info=node,
@@ -67,8 +59,13 @@ MSG_TYPES = {
 }
 
 class EchoClientProtocol(asyncio.Protocol):
-    def __init__(self, message, loop):
+    def __init__(self, loop, config):
         self.loop = loop
+        self.config = config
+        keys_dir = config.datadir + name +'/keys'
+        keys_auth = EllipticalKeysAuth(config.datadir + name)
+        EllipticalKeysAuth._keys_dir = keys_dir
+        self.keys_auth = keys_auth
 
     def connection_made(self, transport):
         print("[{}] Connection made".format(name))
@@ -78,7 +75,7 @@ class EchoClientProtocol(asyncio.Protocol):
     def data_received(self, data):
         messages = None
         try:
-            messages = decode_msg(keys_auth, data)
+            messages = decode_msg(self.keys_auth, data)
         except (RuntimeError, KeyError) as e:
             print("[{}] Not for me".format(name))
             return
@@ -97,14 +94,14 @@ class EchoClientProtocol(asyncio.Protocol):
         print ('[{}] hello rnd: {}'.format(name, msg.rand_val))
         self.bootstrap_key_id = msg.client_key_id
 
-        reply_hello = prepare_hello(keys_auth, msg.rand_val)
+        reply_hello = prepare_hello(self.keys_auth, msg.rand_val, self.config)
         print ('[{}] -> hello'.format(name))
         self.transport.write(reply_hello)
 
         reply = message.MessageRandVal(rand_val=msg.rand_val)
-        reply.sig = keys_auth.sign(reply.get_short_hash())
+        reply.sig = self.keys_auth.sign(reply.get_short_hash())
         ser_msg = reply.serialize()
-        enc_msg = keys_auth.encrypt(ser_msg, self.bootstrap_key_id)
+        enc_msg = self.keys_auth.encrypt(ser_msg, self.bootstrap_key_id)
         db = DataBuffer()
         db.append_len_prefixed_string(enc_msg)
         print ('[{}] -> rnd: {}'.format(name, reply.rand_val))
@@ -124,10 +121,22 @@ class EchoClientProtocol(asyncio.Protocol):
         print('[{}] The server closed the connection after {}'.format(name, time.time()-self.start))
         self.loop.stop()
 
-loop = asyncio.get_event_loop()
+def main(config):
+    loop = asyncio.get_event_loop()
+    echo_proto = EchoClientProtocol(loop, config)
+    coro = loop.create_connection(lambda: echo_proto,
+                                  '54.221.50.79', 40102)
+    loop.run_until_complete(coro)
+    loop.run_forever()
+    loop.close()
 
-coro = loop.create_connection(lambda: EchoClientProtocol(message, loop),
-                              '54.221.50.79', 40102)
-loop.run_until_complete(coro)
-loop.run_forever()
-loop.close()
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--prvaddr', required=True)
+    parser.add_argument('--prvport', default='40103')
+    parser.add_argument('--p2pprvport', default='40102')
+    parser.add_argument('--pubaddr', required=True)
+    parser.add_argument('--datadir', required=True)
+    config = parser.parse_args()
+    main(config)

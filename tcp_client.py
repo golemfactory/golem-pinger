@@ -1,5 +1,6 @@
 import asyncio
 import random
+import shutil
 import time
 
 from golem.core.keysauth import EllipticalKeysAuth
@@ -128,6 +129,13 @@ class GolemHandshakeProtocol(asyncio.Protocol):
         self.loop.stop()
 
 def main(config):
+    try:
+        main_inner(config)
+    finally:
+        # Clean datadir
+        shutil.rmtree(config.datadir+name, ignore_errors=True)
+
+def main_inner(config):
     loop = asyncio.get_event_loop()
     echo_proto = GolemHandshakeProtocol(loop, config)
     coro = loop.create_connection(lambda: echo_proto,

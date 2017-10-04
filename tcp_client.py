@@ -55,7 +55,9 @@ MSG_TYPES = {
     0: 'hello',
     1: 'randval',
     2: 'disconnect',
+    1001: 'ping',
     1005: 'get_tasks',
+    1010: 'degree',
 }
 
 class EchoClientProtocol(asyncio.Protocol):
@@ -109,13 +111,19 @@ class EchoClientProtocol(asyncio.Protocol):
         return
 
     def react_randval(self, msg):
-        print ('[{}] randval rnd: {}'.format(name, msg.rand_val))
+        print('[{}] randval rnd: {}'.format(name, msg.rand_val))
 
     def react_disconnect(self, msg):
         print('[{}] disconnect: {}'.format(name, msg.reason))
 
     def react_get_tasks(self, msg):
         print('[{}] get_tasks'.format(name))
+
+    def react_degree(self, msg):
+        print('[{}] degree {}'.format(name, msg.degree))
+
+    def react_ping(self, msg):
+        print('[{}] ping'.format(name))
 
     def connection_lost(self, exc):
         print('[{}] The server closed the connection after {}'.format(name, time.time()-self.start))

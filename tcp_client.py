@@ -10,7 +10,7 @@ from golem.network.transport import message
 message.init_messages()
 
 name = 'node-'+str(time.time())+'.'+str(random.randint(0, 2147483647))
-proto_id = 14
+proto_id = 24
 cli_ver = '0.8.1'
 
 
@@ -58,7 +58,7 @@ MSG_TYPES = {
     1005: 'get_tasks',
 }
 
-class EchoClientProtocol(asyncio.Protocol):
+class GolemHandshakeProtocol(asyncio.Protocol):
     def __init__(self, loop, config):
         self.loop = loop
         self.config = config
@@ -76,7 +76,7 @@ class EchoClientProtocol(asyncio.Protocol):
         messages = None
         try:
             messages = decode_msg(self.keys_auth, data)
-        except (RuntimeError, KeyError) as e:
+        except RuntimeError as e:
             print("[{}] Not for me".format(name))
             return
 
@@ -123,9 +123,9 @@ class EchoClientProtocol(asyncio.Protocol):
 
 def main(config):
     loop = asyncio.get_event_loop()
-    echo_proto = EchoClientProtocol(loop, config)
+    echo_proto = GolemHandshakeProtocol(loop, config)
     coro = loop.create_connection(lambda: echo_proto,
-                                  '54.221.50.79', 40102)
+                                  config.ip, config.p2pprvport)
     loop.run_until_complete(coro)
     loop.run_forever()
     loop.close()
@@ -138,5 +138,6 @@ if __name__ == '__main__':
     parser.add_argument('--p2pprvport', default='40102')
     parser.add_argument('--pubaddr', required=True)
     parser.add_argument('--datadir', required=True)
+    parser.add_argument('--ip', required=True)
     config = parser.parse_args()
     main(config)

@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import asyncio
 import random
 import shutil
@@ -55,8 +57,11 @@ MSG_TYPES = {
     1: 'randval',
     2: 'disconnect',
     1001: 'ping',
+    1003: 'get_peers',
+    1004: 'peers',
     1005: 'get_tasks',
     1010: 'degree',
+    1014: 'find_node',
 }
 
 class GolemHandshakeProtocol(asyncio.Protocol):
@@ -124,6 +129,15 @@ class GolemHandshakeProtocol(asyncio.Protocol):
     def react_ping(self, msg):
         print('[{}] ping'.format(name))
 
+    def react_get_peers(self, msg):
+        print('[{}] get_peers'.format(name))
+
+    def react_peers(self, msg):
+        print('[{}] peers cnt: {}'.format(name, len(msg.peers_array)))
+
+    def react_find_node(self, msg):
+        print('[{}] find_node'.format(name))
+
     def connection_lost(self, exc):
         print('[{}] The server closed the connection after {}'.format(name, time.time()-self.start))
         self.loop.stop()
@@ -148,8 +162,8 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--prvaddr', required=True)
-    parser.add_argument('--prvport', default='40103')
-    parser.add_argument('--p2pprvport', default='40102')
+    parser.add_argument('--prvport', default=40103, type=int)
+    parser.add_argument('--p2pprvport', default=40102, type=int)
     parser.add_argument('--pubaddr', required=True)
     parser.add_argument('--datadir', required=True)
     parser.add_argument('--ip', required=True)

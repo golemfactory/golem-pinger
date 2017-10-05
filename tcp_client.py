@@ -128,6 +128,14 @@ class GolemHandshakeProtocol(asyncio.Protocol):
 
     def react_ping(self, msg):
         print('[{}] ping'.format(name))
+        reply = message.MessagePong()
+        reply.sig = self.keys_auth.sign(reply.get_short_hash())
+        ser_msg = reply.serialize()
+        enc_msg = self.keys_auth.encrypt(ser_msg, self.bootstrap_key_id)
+        db = DataBuffer()
+        db.append_len_prefixed_string(enc_msg)
+        print ('[{}] -> pong'.format(name))
+        self.transport.write(db.read_all())
 
     def react_get_peers(self, msg):
         print('[{}] get_peers'.format(name))

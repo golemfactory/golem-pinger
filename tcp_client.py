@@ -17,7 +17,7 @@ name = 'node-'+str(time.time())+'.'+str(random.randint(0, 2147483647))
 
 def prepare_hello(keys_auth, rand_val, config):
     node = Node(name, keys_auth.get_key_id(), config.prvaddr, config.prvport,
-        config.pubaddr, None, 'Symmetric NAT', config.pubaddr,
+        config.pubaddr, None, 'Symmetric NAT', config.p2pprvport,
         config.p2pprvport)
     print("Proto id = ", config.protoid)
     challenge_kwargs = {}

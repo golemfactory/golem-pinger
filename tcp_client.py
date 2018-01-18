@@ -16,6 +16,8 @@ message.init_messages()
 
 name = 'node-'+str(time.time())+'.'+str(random.randint(0, 2147483647))
 
+keys_auth = None
+other_key = None
 
 def prepare_hello(keys_auth, rand_val, config):
     node = Node(name, keys_auth.get_key_id(), config.prvaddr, config.prvport,
@@ -35,6 +37,23 @@ def prepare_hello(keys_auth, rand_val, config):
         metadata=[],
         solve_challenge=False,
         **challenge_kwargs
+    )
+
+    ser_msg = dump(
+        msg,
+        keys_auth.ecc.raw_privkey,
+        None
+    )
+
+    db = DataBuffer()
+    db.append_len_prefixed_bytes(ser_msg)
+    return db.read_all()
+
+def prepare_task_hello(keys_auth, rand_val, config):
+    msg = message.Hello(
+        client_key_id=keys_auth.get_key_id(),
+        rand_val=rand_val,
+        proto_id=config.protoid
     )
 
     ser_msg = dump(
@@ -73,6 +92,17 @@ MSG_TYPES = {
     1016: 'set_task_session',
 }
 
+TASK_MSG_TYPES = {
+    0: 'hello',
+    1: 'randval',
+    2: 'disconnect',
+    2001: 'want_to_compute_task',
+    2002: 'task_to_compute',
+    2003: 'cannot_assign_task',
+    2004: 'report_computed_task',
+    2016: 'start_session_response',
+}
+
 class GolemHandshakeProtocol(asyncio.Protocol):
     def __init__(self, loop, config):
         self.loop = loop
@@ -86,6 +116,7 @@ class GolemHandshakeProtocol(asyncio.Protocol):
         print("[{}] Connection made".format(name))
         self.start = time.time()
         self.transport = transport
+
 
     def data_received(self, data):
         messages = None
@@ -115,6 +146,11 @@ class GolemHandshakeProtocol(asyncio.Protocol):
 
         self.other_pub_key = decode_hex(msg.client_key_id)
 
+        global keys_auth
+        keys_auth = self.keys_auth
+        global other_key
+        other_key = self.other_pub_key
+
         reply = message.RandVal(rand_val=msg.rand_val)
         serialized = dump(
             reply,
@@ -135,6 +171,7 @@ class GolemHandshakeProtocol(asyncio.Protocol):
 
     def react_get_tasks(self, msg):
         print('[{}] get_tasks'.format(name))
+        return
 
     def react_degree(self, msg):
         print('[{}] degree {}'.format(name, msg.degree))
@@ -165,6 +202,112 @@ class GolemHandshakeProtocol(asyncio.Protocol):
         print('[{}] The server closed the connection after {}'.format(name, time.time()-self.start))
         self.loop.stop()
 
+
+class GolemTaskProtocol(asyncio.Protocol):
+    def __init__(self, loop, config):
+        self.loop = loop
+        self.config = config
+
+    def connection_made(self, transport):
+        print("[{}] Connection made".format(name))
+        self.start = time.time()
+        self.transport = transport
+        self.loop.call_later(10, self.send_task_hello)
+        self.loop.call_later(20, self.send_payment)
+
+    def send_task_hello(self):
+        reply_hello = prepare_task_hello(keys_auth, 42, self.config)
+        print ('[{}] -> hello'.format(name))
+        self.transport.write(reply_hello)
+
+    def react_hello(self, msg):
+        print ('[{}] hello rnd: {}'.format(name, msg.rand_val))
+        self.bootstrap_key_id = msg.client_key_id
+
+        reply_hello = prepare_task_hello(keys_auth, msg.rand_val, self.config)
+        print ('[{}] -> hello'.format(name))
+        self.transport.write(reply_hello)
+        #
+        # self.other_pub_key = decode_hex(msg.client_key_id)
+
+        reply = message.RandVal(rand_val=msg.rand_val)
+        serialized = dump(
+            reply,
+            keys_auth.ecc.raw_privkey,
+            other_key
+        )
+        length = struct.pack("!L", len(serialized))
+        length + serialized
+        print ('[{}] -> rnd: {}'.format(name, reply.rand_val))
+        self.transport.write(length + serialized)
+        return
+
+    def react_randval(self, msg):
+        print('[{}] randval rnd: {}'.format(name, msg.rand_val))
+
+    def send_payment(self):
+        print("Start spamming")
+        reply = message.SubtaskPayment(
+            subtask_id="xyz",
+            reward="10",
+            transaction_id=20,
+            block_number=34
+        )
+        serialized = dump(
+            reply,
+            keys_auth.ecc.raw_privkey,
+            other_key
+        )
+        length = struct.pack("!L", len(serialized))
+        length + serialized
+        print ('[{}] -> SubtaskPayment'.format(name))
+        self.transport.write(length + serialized)
+
+    def data_received(self, data):
+        print("Data received")
+        if not keys_auth:
+            return
+
+        messages = None
+        try:
+            messages = decode_msg(keys_auth, data)
+        except RuntimeError as e:
+            print("[{}] Not for me".format(name))
+            return
+
+        if not messages:
+            return
+
+        print("[{}] TASK Response after {}".format(name, time.time()-self.start))
+        for i in messages:
+            getattr(self, 'react_{}'.format(TASK_MSG_TYPES.get(i.TYPE, 'default')))(i)
+
+    def react_want_to_compute_task(self):
+        print("react_want_to_compute_task")
+
+    def react_task_to_compute(self):
+        print("react_task_to_compute")
+
+    def react_cannot_assign_task(self):
+        print("react_cannot_assign_task")
+
+    def react_report_computed_task(self):
+        print("react_report_computed_task")
+
+    def react_start_session_response(self):
+        print("react_start_session_response")
+
+    def connection_lost(self, exc):
+        print('[{}] The server closed the Task connection after {}'.format(name,
+                                                                      time.time() - self.start))
+        self.loop.stop()
+
+    def react_disconnect(self, msg):
+        print('[{}] disconnect: {}'.format(name, msg.reason))
+
+    def react_default(self, msg):
+        print ('[{}] DEFAULT {}: {}'.format(name, msg.TYPE, msg))
+
 def main(config):
     try:
         main_inner(config)
@@ -172,12 +315,56 @@ def main(config):
         # Clean datadir
         shutil.rmtree(config.datadir+name, ignore_errors=True)
 
+async def main_coro(conn, ip, port, loop):
+    await loop.create_connection(lambda: conn, ip, port)
+
+def call_in_background(target, *, loop=None, executor=None):
+    """Schedules and starts target callable as a background task
+
+    If not given, *loop* defaults to the current thread's event loop
+    If not given, *executor* defaults to the loop's default executor
+
+    Returns the scheduled task.
+    """
+    if loop is None:
+        loop = asyncio.get_event_loop()
+    if callable(target):
+        return loop.run_in_executor(executor, target)
+    raise TypeError("target must be a callable, "
+                    "not {!r}".format(type(target)))
+
+def run_in_foreground(task, *, loop=None):
+    """Runs event loop in current thread until the given task completes
+
+    Returns the result of the task.
+    For more complex conditions, combine with asyncio.wait()
+    To include a timeout, combine with asyncio.wait_for()
+    """
+    if loop is None:
+        loop = asyncio.get_event_loop()
+    return loop.run_until_complete(asyncio.ensure_future(task, loop=loop))
+
+def schedule_coroutine(target, *, loop=None):
+    """Schedules target coroutine in the given event loop
+
+    If not given, *loop* defaults to the current thread's event loop
+
+    Returns the scheduled task.
+    """
+    if asyncio.iscoroutine(target):
+        return asyncio.ensure_future(target, loop=loop)
+    raise TypeError("target must be a coroutine, "
+                    "not {!r}".format(type(target)))
+
 def main_inner(config):
     loop = asyncio.get_event_loop()
     echo_proto = GolemHandshakeProtocol(loop, config)
-    coro = loop.create_connection(lambda: echo_proto,
-                                  config.ip, config.p2pprvport)
-    loop.run_until_complete(coro)
+    task_proto = GolemTaskProtocol(loop, config)
+
+    p2p = schedule_coroutine(main_coro(echo_proto, config.ip, config.p2pprvport, loop), loop=loop)
+    task = schedule_coroutine(main_coro(task_proto, config.ip, config.prvport, loop), loop=loop)
+
+    run_in_foreground(asyncio.wait([p2p, task]))
     loop.run_forever()
     loop.close()
 

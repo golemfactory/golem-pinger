@@ -4,12 +4,14 @@ import asyncio
 import random
 import shutil
 import time
+import struct
 
 from golem.core.keysauth import EllipticalKeysAuth
 from golem.network.p2p.node import Node
 from golem.core.databuffer import DataBuffer
+from golem.utils import decode_hex
 
-from golem_messages import message
+from golem_messages import message, load, dump
 message.init_messages()
 
 name = 'node-'+str(time.time())+'.'+str(random.randint(0, 2147483647))
@@ -21,6 +23,7 @@ def prepare_hello(keys_auth, rand_val, config):
         config.p2pprvport)
     print("Proto id = ", config.protoid)
     challenge_kwargs = {}
+
     msg = message.Hello(
         proto_id=config.protoid,
         port=config.p2pprvport,
@@ -34,9 +37,12 @@ def prepare_hello(keys_auth, rand_val, config):
         **challenge_kwargs
     )
 
-    msg.sig = keys_auth.sign(msg.get_short_hash())
-    ser_msg = msg.serialize()
-    #enc_msg = keys_auth.encrypt(ser_msg, keys_auth.get_key_id())
+    ser_msg = dump(
+        msg,
+        keys_auth.ecc.raw_privkey,
+        None
+    )
+
     db = DataBuffer()
     db.append_len_prefixed_bytes(ser_msg)
     return db.read_all()
@@ -45,9 +51,13 @@ def decode_msg(keys_auth, data):
     db = DataBuffer()
     db.append_bytes(data)
     messages = []
-    for msg in db.get_len_prefixed_bytes():
-        m = message.Message.deserialize(msg, keys_auth.decrypt)
-        messages.append(m)
+    for buf in db.get_len_prefixed_bytes():
+        msg = load(
+            buf,
+            keys_auth.ecc.raw_privkey,
+            None,
+        )
+        messages.append(msg)
     return messages
 
 MSG_TYPES = {
@@ -103,14 +113,18 @@ class GolemHandshakeProtocol(asyncio.Protocol):
         print ('[{}] -> hello'.format(name))
         self.transport.write(reply_hello)
 
+        self.other_pub_key = decode_hex(msg.client_key_id)
+
         reply = message.RandVal(rand_val=msg.rand_val)
-        reply.sig = self.keys_auth.sign(reply.get_short_hash())
-        ser_msg = reply.serialize()
-        enc_msg = self.keys_auth.encrypt(ser_msg, self.bootstrap_key_id)
-        db = DataBuffer()
-        db.append_len_prefixed_bytes(enc_msg)
+        serialized = dump(
+            reply,
+            self.keys_auth.ecc.raw_privkey,
+            self.other_pub_key
+        )
+        length = struct.pack("!L", len(serialized))
+        length + serialized
         print ('[{}] -> rnd: {}'.format(name, reply.rand_val))
-        self.transport.write(db.read_all())
+        self.transport.write(length + serialized)
         return
 
     def react_randval(self, msg):
@@ -128,13 +142,15 @@ class GolemHandshakeProtocol(asyncio.Protocol):
     def react_ping(self, msg):
         print('[{}] ping'.format(name))
         reply = message.Pong()
-        reply.sig = self.keys_auth.sign(reply.get_short_hash())
-        ser_msg = reply.serialize()
-        enc_msg = self.keys_auth.encrypt(ser_msg, self.bootstrap_key_id)
-        db = DataBuffer()
-        db.append_len_prefixed_bytes(enc_msg)
-        print ('[{}] -> pong'.format(name))
-        self.transport.write(db.read_all())
+        serialized = dump(
+            reply,
+            self.keys_auth.ecc.raw_privkey,
+            self.other_pub_key
+        )
+        length = struct.pack("!L", len(serialized))
+        length + serialized
+        print ('[{}] -> Pong'.format(name))
+        self.transport.write(length + serialized)
 
     def react_get_peers(self, msg):
         print('[{}] get_peers'.format(name))
@@ -174,7 +190,7 @@ if __name__ == '__main__':
     parser.add_argument('--pubaddr', required=True)
     parser.add_argument('--datadir', required=True)
     parser.add_argument('--ip', required=True)
-    parser.add_argument('--protoid', type=int, default=18)
-    parser.add_argument('--cliver', default='0.10.1')
+    parser.add_argument('--protoid', type=int, default=1337)
+    parser.add_argument('--cliver', default='0.11.0')
     config = parser.parse_args()
     main(config)

@@ -116,7 +116,39 @@ class GolemHandshakeProtocol(asyncio.Protocol):
         print("[{}] Connection made".format(name))
         self.start = time.time()
         self.transport = transport
+        self.loop.call_later(20, self.send_set_task_session)
 
+    def send_set_task_session(self):
+        node = Node(
+            node_name='super_node',
+            key='0a28c92c28508266cb259c91005f7d1a481d9fc0ef631373808d9c4f857f105eb3c5a7beb3ad97c0675c3054d9dadf8c5ff497db3302ef9d44d31d39f3f93900',
+            pub_addr='1.2.3.4',
+            prv_addr='1.2.3.4',
+            pub_port=10000,
+            prv_port=10000)
+
+        #counter = 0
+        while True:
+            #counter += 1
+            msg = message.SetTaskSession(
+                key_id='0a28c92c285082ffcb259c91005f7d1a481d9fc0ef631373808d9c4f857f105eb3c5a7beb3ad97c0675c3054d9dadf8c5ff497db3302ef9d44d31d39f3f93900',
+                node_info=node,
+                conn_id=None,
+                super_node_info=None)
+
+            serialized = dump(
+                msg,
+                keys_auth.ecc.raw_privkey,
+                other_key
+            )
+            length = struct.pack("!L", len(serialized))
+            length + serialized
+            print('[{}] -> SetTaskSession'.format(name))
+            self.transport.write(length + serialized)
+
+    def react_set_task_session(self, msg):
+        print('[{}]  SetTaskSession: {}'.format(name))
+        #self.send_set_task_session()
 
     def data_received(self, data):
         messages = None
@@ -213,7 +245,7 @@ class GolemTaskProtocol(asyncio.Protocol):
         self.start = time.time()
         self.transport = transport
         self.loop.call_later(10, self.send_task_hello)
-        self.loop.call_later(20, self.send_payment)
+        #self.loop.call_later(20, self.send_payment)
 
     def send_task_hello(self):
         reply_hello = prepare_task_hello(keys_auth, 42, self.config)
@@ -247,21 +279,24 @@ class GolemTaskProtocol(asyncio.Protocol):
 
     def send_payment(self):
         print("Start spamming")
-        reply = message.SubtaskPayment(
-            subtask_id="xyz",
-            reward="10",
-            transaction_id=20,
-            block_number=34
-        )
-        serialized = dump(
-            reply,
-            keys_auth.ecc.raw_privkey,
-            other_key
-        )
-        length = struct.pack("!L", len(serialized))
-        length + serialized
-        print ('[{}] -> SubtaskPayment'.format(name))
-        self.transport.write(length + serialized)
+        counter = 0
+        while True:
+            reply = message.SubtaskPayment(
+                subtask_id=str(counter),
+                reward="10",
+                transaction_id=20,
+                block_number=34
+            )
+            serialized = dump(
+                reply,
+                keys_auth.ecc.raw_privkey,
+                other_key
+            )
+            length = struct.pack("!L", len(serialized))
+            length + serialized
+            print ('[{}] -> SubtaskPayment'.format(name))
+            self.transport.write(length + serialized)
+            counter += 1
 
     def data_received(self, data):
         print("Data received")

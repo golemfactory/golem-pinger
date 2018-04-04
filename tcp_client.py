@@ -6,7 +6,7 @@ import shutil
 import time
 import struct
 
-from golem.core.keysauth import EllipticalKeysAuth
+from golem.core.keysauth import KeysAuth
 from golem.network.p2p.node import Node
 from golem.core.databuffer import DataBuffer
 from golem.utils import decode_hex
@@ -20,7 +20,7 @@ keys_auth = None
 other_key = None
 
 def prepare_hello(keys_auth, rand_val, config):
-    node = Node(name, keys_auth.get_key_id(), config.prvaddr, config.prvport,
+    node = Node(name, keys_auth.key_id, config.prvaddr, config.prvport,
         config.pubaddr, None, 'Symmetric NAT', config.p2pprvport,
         config.p2pprvport)
     print("Proto id = ", config.protoid)
@@ -30,8 +30,8 @@ def prepare_hello(keys_auth, rand_val, config):
         proto_id=config.protoid,
         port=config.p2pprvport,
         node_name=name,
-        client_key_id=keys_auth.get_key_id(),
-        node_info=node,
+        client_key_id=keys_auth.key_id,
+        node_info=node.to_dict(),
         client_ver=config.cliver,
         rand_val=rand_val,
         metadata=[],
@@ -51,7 +51,7 @@ def prepare_hello(keys_auth, rand_val, config):
 
 def prepare_task_hello(keys_auth, rand_val, config):
     msg = message.Hello(
-        client_key_id=keys_auth.get_key_id(),
+        client_key_id=keys_auth.key_id,
         rand_val=rand_val,
         proto_id=config.protoid
     )
@@ -108,8 +108,8 @@ class GolemHandshakeProtocol(asyncio.Protocol):
         self.loop = loop
         self.config = config
         keys_dir = config.datadir + name +'/keys'
-        keys_auth = EllipticalKeysAuth(config.datadir + name)
-        EllipticalKeysAuth._keys_dir = keys_dir
+        keys_auth = KeysAuth(config.datadir + name, 'someKeyName', 'somePass')
+        KeysAuth._keys_dir = keys_dir
         self.keys_auth = keys_auth
 
     def connection_made(self, transport):
@@ -362,9 +362,9 @@ def main_inner(config):
     task_proto = GolemTaskProtocol(loop, config)
 
     p2p = schedule_coroutine(main_coro(echo_proto, config.ip, config.p2pprvport, loop), loop=loop)
-    task = schedule_coroutine(main_coro(task_proto, config.ip, config.prvport, loop), loop=loop)
+    #task = schedule_coroutine(main_coro(task_proto, config.ip, config.prvport, loop), loop=loop)
 
-    run_in_foreground(asyncio.wait([p2p, task]))
+    run_in_foreground(asyncio.wait([p2p]))
     loop.run_forever()
     loop.close()
 
@@ -377,7 +377,7 @@ if __name__ == '__main__':
     parser.add_argument('--pubaddr', required=True)
     parser.add_argument('--datadir', required=True)
     parser.add_argument('--ip', required=True)
-    parser.add_argument('--protoid', type=int, default=1337)
-    parser.add_argument('--cliver', default='0.11.0')
+    parser.add_argument('--protoid', default="1337-testnet")
+    parser.add_argument('--cliver', default='0.15.0')
     config = parser.parse_args()
     main(config)

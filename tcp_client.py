@@ -193,7 +193,10 @@ class GolemHandshakeProtocol(asyncio.Protocol):
         print('[{}] get_peers'.format(name))
 
     def react_peers(self, msg):
-        print('[{}] peers cnt: {}'.format(name, len(msg.peers_array)))
+        print('[{}] peers cnt: {}'.format(name, len(msg.peers)))
+        for p in msg.peers:
+            p['node'] = Node.from_dict(p['node'])
+            print("Peer info {}".format(p))
 
     def react_find_node(self, msg):
         print('[{}] find_node'.format(name))
